@@ -1,8 +1,12 @@
+from books.models import Book
+from characters.models import Character
+from houses.models import House
 import requests
 import base64
 from django.core.management.base import BaseCommand
-from books.models import Book, Character, House
-
+from django.utils import timezone
+import datetime
+import pytz
 
 """
 LIVROS
@@ -88,7 +92,6 @@ CASAS
 }
 """
 
-
 API_BASE = "https://anapioficeandfire.com/api"
 COVER_URL = "https://covers.openlibrary.org/b/isbn/{}-L.jpg"
 
@@ -108,7 +111,6 @@ def fetch_all(resource):
     return results
 
 def download_cover_base64(isbn):
-    # baixa a capa a partir do isbn
     url = COVER_URL.format(isbn.replace('-', ''))
     resp = requests.get(url)
     if resp.status_code == 200:
@@ -118,11 +120,27 @@ def download_cover_base64(isbn):
 class Command(BaseCommand):
     help = "popula o banco com livros, personagens e casas"
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--tipo',
+            choices=['all', 'books', 'characters', 'houses'],
+            default='all',
+            help='Tipo de dados a serem importados (all, books, characters ou houses)'
+        )
+
     def handle(self, *args, **options):
-        self.import_characters()
-        self.import_houses()
-        self.import_books()
-        print(">>> importação concluída!")
+        tipo = options['tipo']
+        
+        if tipo == 'all' or tipo == 'characters':
+            self.import_characters()
+            
+        if tipo == 'all' or tipo == 'houses':
+            self.import_houses()
+            
+        if tipo == 'all' or tipo == 'books':
+            self.import_books()
+            
+        print(f">>> importação de {tipo} concluída!")
 
     def import_characters(self):
         print(">>> importando personagens...")
@@ -216,10 +234,18 @@ class Command(BaseCommand):
         resp = requests.get(f"{API_BASE}/books")
         resp.raise_for_status()
         books = resp.json()
+
         # criar/atualizar livros e relacionar personagens
         for item in books:
             bid = extract_id(item['url'])
             cover = download_cover_base64(item.get('isbn', '')) if item.get('isbn') else None
+            released_str = item.get('released')
+            released = None
+            
+            if released_str:
+                # Converter para datetime com timezone
+                naive_dt = datetime.datetime.fromisoformat(released_str.replace('Z', '+00:00'))
+                released = pytz.utc.localize(naive_dt) if naive_dt.tzinfo is None else naive_dt
             book, _ = Book.objects.update_or_create(
                 external_id=bid,
                 defaults={
@@ -230,7 +256,7 @@ class Command(BaseCommand):
                     'publisher': item.get('publisher'),
                     'country': item.get('country'),
                     'media_type': item.get('mediaType'),
-                    'released': item.get('released'),
+                    'released': released,
                     'cover_base64': cover,
                 }
             )
