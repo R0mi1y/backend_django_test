@@ -1,4 +1,7 @@
+from itertools import chain
 from django.db import models
+
+from books.models import Book
 
 """
 {
@@ -68,5 +71,9 @@ class Character(models.Model):
     tv_series = models.JSONField(default=list, blank=True)
     played_by = models.JSONField(default=list, blank=True)
 
+    class Meta:
+        ordering = ['id']
+
     def __str__(self):
         return self.name or f"Character {self.external_id}"
+    

@@ -47,6 +47,26 @@ INSTALLED_APPS = [
     'users',
 ]
 
+REQUIRE_AUTHENTICATION = os.getenv('REQUIRE_AUTHENTICATION', 'True') == 'True'
+
+REST_FRAMEWORK = {
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 10
+}
+
+if REQUIRE_AUTHENTICATION:
+    REST_FRAMEWORK['DEFAULT_AUTHENTICATION_CLASSES'] = [
+        'oauth2_provider.contrib.rest_framework.OAuth2Authentication', 
+    ]
+    REST_FRAMEWORK['DEFAULT_PERMISSION_CLASSES'] = [
+        'rest_framework.permissions.IsAuthenticated',
+    ]
+else:
+    REST_FRAMEWORK['DEFAULT_AUTHENTICATION_CLASSES'] = []
+    REST_FRAMEWORK['DEFAULT_PERMISSION_CLASSES'] = [
+        'rest_framework.permissions.AllowAny',
+    ]
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -55,9 +75,13 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'oauth2_provider.middleware.OAuth2TokenMiddleware',
     'corsheaders.middleware.CorsMiddleware',
 ]
+
+if REQUIRE_AUTHENTICATION:
+    MIDDLEWARE.append('oauth2_provider.middleware.OAuth2TokenMiddleware')
+
+APPEND_SLASH = True
 
 ROOT_URLCONF = 'backend_django_test.urls'
 
@@ -113,29 +137,9 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'oauth2_provider.contrib.rest_framework.OAuth2Authentication', 
-    ],
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
-    ],
-}
+AUTH_USER_MODEL = 'users.User'
 
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'ROTATE_REFRESH_TOKENS': False,
-    'BLACKLIST_AFTER_ROTATION': True,
-    'ALGORITHM': 'HS256',
-    'SIGNING_KEY': SECRET_KEY,
-    'VERIFYING_KEY': None,
-    'AUTH_HEADER_TYPES': ('Bearer',),
-    'USER_ID_FIELD': 'id',
-    'USER_ID_CLAIM': 'user_id',
-    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
-    'TOKEN_TYPE_CLAIM': 'token_type',
-}
+LOGIN_URL = 'admin:login'
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
@@ -143,14 +147,20 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 SWAGGER_SETTINGS = {
-    'SECURITY_DEFINITIONS': {
-        'Bearer': {
-            'type': 'apiKey',
-            'name': 'Authorization',
-            'in': 'header'
-        }
-    },
     'USE_SESSION_AUTH': False,
     'JSON_EDITOR': True,
     'SUPPORTED_SUBMIT_METHODS': ['get', 'post', 'put', 'delete', 'patch'],
+}
+
+OAUTH2_PROVIDER = {
+    'SCOPES': {'read': 'Read scope', 'write': 'Write scope'},
+    'ACCESS_TOKEN_EXPIRE_SECONDS': 36000,
+    'REFRESH_TOKEN_EXPIRE_SECONDS': 86400,
+    'ALLOWED_REDIRECT_URI_SCHEMES': ['http', 'https'],
+    'ALLOWED_GRANT_TYPES': [
+        'password',
+        'refresh_token',
+        'client_credentials',
+        'authorization_code',
+    ],
 }

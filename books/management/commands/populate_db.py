@@ -1,3 +1,4 @@
+import os
 from books.models import Book
 from characters.models import Character
 from houses.models import House
@@ -9,6 +10,8 @@ import datetime
 import pytz
 
 """
+Rodar 2 vezes para fazer as ligações entre personagens e livros
+
 LIVROS
 
 {
@@ -40,20 +43,20 @@ PERSONAGENS
     "culture": "Braavosi",
     "born": "",
     "died": "",
-    "titles": [],
+    "titles": ["The Daughter of the Dusk"],
     "aliases": [
         "The Daughter of the Dusk"
     ],
     "father": "",
     "mother": "",
     "spouse": "",
-    "allegiances": [],
+    "allegiances": ["https://anapioficeandfire.com/api/houses/362"],
     "books": [
         "https://anapioficeandfire.com/api/books/5"
     ],
-    "povBooks": [],
-    "tvSeries": [],
-    "playedBy": []
+    "povBooks": ["https://anapioficeandfire.com/api/books/5"],
+    "tvSeries": ["Game of Thrones"],
+    "playedBy": ["Emilia Clarke"]
 }
 
 CASAS
@@ -92,6 +95,7 @@ CASAS
 }
 """
 
+MAX_PAGES = 10
 API_BASE = "https://anapioficeandfire.com/api"
 COVER_URL = "https://covers.openlibrary.org/b/isbn/{}-L.jpg"
 
@@ -100,14 +104,13 @@ def extract_id(url):
 
 def fetch_all(resource):
     results, page = [], 1
-    while True:
+    for page in range(1, MAX_PAGES + 1):
         resp = requests.get(f"{API_BASE}/{resource}?page={page}&pageSize=50")
         resp.raise_for_status()
         data = resp.json()
         if not data:
             break
         results.extend(data)
-        page += 1
     return results
 
 def download_cover_base64(isbn):
@@ -117,36 +120,39 @@ def download_cover_base64(isbn):
         return base64.b64encode(resp.content).decode('ascii')
     return None
 
+
 class Command(BaseCommand):
-    help = "popula o banco com livros, personagens e casas"
 
     def add_arguments(self, parser):
         parser.add_argument(
-            '--tipo',
+            '--type',
             choices=['all', 'books', 'characters', 'houses'],
             default='all',
-            help='Tipo de dados a serem importados (all, books, characters ou houses)'
         )
 
     def handle(self, *args, **options):
-        tipo = options['tipo']
+        tipo = options['type']
         
         if tipo == 'all' or tipo == 'characters':
             self.import_characters()
             
         if tipo == 'all' or tipo == 'houses':
             self.import_houses()
+            self.relate_characters_to_houses()
             
         if tipo == 'all' or tipo == 'books':
             self.import_books()
+            if tipo == 'books':
+                self.get_characters()
+            self.relate_characters_to_books()
             
         print(f">>> importação de {tipo} concluída!")
 
     def import_characters(self):
         print(">>> importando personagens...")
-        chars = fetch_all('characters')
-        # criar/atualizar personagens
-        for item in chars:
+        self.get_characters()
+        
+        for item in self.chars_json:
             cid = extract_id(item['url'])
             Character.objects.update_or_create(
                 external_id=cid,
@@ -162,30 +168,45 @@ class Command(BaseCommand):
                     'played_by': item.get('playedBy', []),
                 }
             )
-        # relacionar familiares e lealdades
-        for item in chars:
+            
+        for item in self.chars_json:
             char = Character.objects.get(external_id=extract_id(item['url']))
-            for rel in ['father', 'mother', 'spouse']:
-                url = item.get(rel)
+            for i in ['father', 'mother', 'spouse']:
+                url = item.get(i)
                 if url:
-                    try:
-                        related = Character.objects.get(external_id=extract_id(url))
-                        setattr(char, rel, related)
-                    except Character.DoesNotExist:
-                        pass
+                    related = Character.objects.filter(external_id=extract_id(url)).first()
+                    if related:
+                        setattr(char, i, related)
             char.save()
-            for hurl in item.get('allegiances', []):
-                try:
-                    house = House.objects.get(external_id=extract_id(hurl))
+            
+    def relate_characters_to_houses(self):
+        for item in self.chars_json:
+            char = Character.objects.get(external_id=extract_id(item['url']))
+            for i in item.get('allegiances', []):
+                house = House.objects.filter(external_id=extract_id(i)).first()
+                if house:
                     char.allegiances.add(house)
-                except House.DoesNotExist:
-                    pass
+                
+                
+    def relate_characters_to_books(self):
+        for item in self.chars_json:
+            char = Character.objects.get(external_id=extract_id(item['url']))
+            for i in item.get('books', []):
+                book = Book.objects.filter(external_id=extract_id(i)).first()
+                if book:
+                    char.books.add(book)
+                    
+            for i in item.get('povBooks', []):
+                book = Book.objects.filter(external_id=extract_id(i)).first()
+                if book:
+                    char.pov_books.add(book)
+                
 
     def import_houses(self):
         print(">>> importando casas...")
-        houses = fetch_all('houses')
-        # criar/atualizar casas
-        for item in houses:
+        self.get_houses()
+        
+        for item in self.houses_json:
             hid = extract_id(item['url'])
             House.objects.update_or_create(
                 external_id=hid,
@@ -201,51 +222,59 @@ class Command(BaseCommand):
                     'ancestral_weapons': item.get('ancestralWeapons', []),
                 }
             )
-        # relacionar casas e personagens
-        for item in houses:
+            
+        for item in self.houses_json:
             house = House.objects.get(external_id=extract_id(item['url']))
             for rel in ['currentLord', 'heir', 'founder', 'overlord']:
                 url = item.get(rel)
                 if url:
-                    try:
-                        if rel == 'overlord':
-                            related = House.objects.get(external_id=extract_id(url))
-                        else:
-                            related = Character.objects.get(external_id=extract_id(url))
+                    if rel == 'overlord':
+                        related = House.objects.filter(external_id=extract_id(url)).first()
+                    else:
+                        related = Character.objects.filter(external_id=extract_id(url)).first()
+                    
+                    if related:
                         setattr(house, rel.lower() if rel != 'overlord' else 'overlord', related)
-                    except (House.DoesNotExist, Character.DoesNotExist):
-                        pass
             house.save()
             for cb in item.get('cadetBranches', []):
-                try:
-                    branch = House.objects.get(external_id=extract_id(cb))
+                branch = House.objects.filter(external_id=extract_id(cb)).first()
+                if branch:
                     house.cadet_branches.add(branch)
-                except House.DoesNotExist:
-                    pass
             for sm in item.get('swornMembers', []):
-                try:
-                    member = Character.objects.get(external_id=extract_id(sm))
+                member = Character.objects.filter(external_id=extract_id(sm)).first()
+                if member:
                     house.sworn_members.add(member)
-                except Character.DoesNotExist:
-                    pass
 
+
+    def get_houses(self):
+        self.houses_json = fetch_all('houses')
+        return self.houses_json
+    
+    
+    def get_characters(self):
+        self.chars_json = fetch_all('characters')
+        return self.chars_json
+    
+    
+    def get_books(self):
+        self.books_json = fetch_all('books')
+        return self.books_json
+    
+        
     def import_books(self):
         print(">>> importando livros...")
-        resp = requests.get(f"{API_BASE}/books")
-        resp.raise_for_status()
-        books = resp.json()
+        self.get_books()
 
-        # criar/atualizar livros e relacionar personagens
-        for item in books:
+        for item in self.books_json:
             bid = extract_id(item['url'])
             cover = download_cover_base64(item.get('isbn', '')) if item.get('isbn') else None
             released_str = item.get('released')
             released = None
             
             if released_str:
-                # Converter para datetime com timezone
                 naive_dt = datetime.datetime.fromisoformat(released_str.replace('Z', '+00:00'))
                 released = pytz.utc.localize(naive_dt) if naive_dt.tzinfo is None else naive_dt
+            
             book, _ = Book.objects.update_or_create(
                 external_id=bid,
                 defaults={
@@ -258,15 +287,18 @@ class Command(BaseCommand):
                     'media_type': item.get('mediaType'),
                     'released': released,
                     'cover_base64': cover,
+                    'amazon_link': f"https://www.amazon.com.br/s?k={item.get('isbn').replace('-', '')}",
                 }
             )
             for url in item.get('characters', []):
-                try:
-                    book.characters.add(Character.objects.get(external_id=extract_id(url)))
-                except Character.DoesNotExist:
-                    pass
+                character = Character.objects.filter(external_id=extract_id(url)).first()
+                if character:   
+                    book.characters.add(character)
             for url in item.get('povCharacters', []):
-                try:
-                    book.pov_characters.add(Character.objects.get(external_id=extract_id(url)))
-                except Character.DoesNotExist:
-                    pass
+                character = Character.objects.filter(external_id=extract_id(url)).first()
+                if character:
+                    book.pov_characters.add(character)
+    
+
+
+

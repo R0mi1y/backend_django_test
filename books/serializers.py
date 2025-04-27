@@ -25,7 +25,7 @@ class BookSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = Book
         fields = [
-            'url', 'external_id', 'name', 'isbn', 'authors',
+            'url', 'amazon_link', 'external_id', 'name', 'isbn', 'authors',
             'number_of_pages', 'publisher', 'country', 'media_type',
             'released', 'cover_base64', 'cover_url', 'characters',
             'pov_characters'

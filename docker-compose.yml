@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=True
+      - SECRET_KEY="django-insecure-g=u152rw%sz+ax7+=0ooq#)e2i%*ek-e1n+igyew7#l^(#k@ma"
+      - DATABASE_URL=sqlite:///db.sqlite3
+      - REQUIRE_AUTHENTICATION=False
+    command: python manage.py runserver 0.0.0.0:8000

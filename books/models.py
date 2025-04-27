@@ -32,6 +32,7 @@ class Book(models.Model):
     country = models.CharField(max_length=100)
     media_type = models.CharField(max_length=100)
     released = models.DateTimeField()
+    amazon_link = models.TextField(default=None, blank=True, null=True)
 
     cover_base64 = models.TextField(blank=True, null=True)
     characters = models.ManyToManyField(
@@ -44,6 +45,9 @@ class Book(models.Model):
         related_name='character_pov_books',
         blank=True
     )
+
+    class Meta:
+        ordering = ['id']
 
     def __str__(self):
         return self.name
